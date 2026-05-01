@@ -1,7 +1,12 @@
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
-loadDotenv();
+// Skip .env loading in test runs — tests set process.env explicitly before
+// importing this module. Dotenv's default is non-override anyway, but
+// skipping entirely keeps tests deterministic across machines.
+if (process.env.NODE_ENV !== "test" && process.env.VITEST !== "true") {
+  loadDotenv();
+}
 
 const Schema = z.object({
   ANTHROPIC_API_KEY: z.string().min(20, "ANTHROPIC_API_KEY missing or too short"),

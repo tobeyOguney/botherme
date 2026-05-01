@@ -1,9 +1,17 @@
 import matter from "gray-matter";
-import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+  existsSync,
+  unlinkSync,
+} from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { logger } from "../observability/logger.js";
+import { isValidSlug } from "../util/slugify.js";
 
 export const IndexFrontmatter = z.object({
   user: z.string(),
@@ -14,12 +22,19 @@ export const IndexFrontmatter = z.object({
 });
 export type IndexFrontmatter = z.infer<typeof IndexFrontmatter>;
 
+export const CadenceHint = z.enum(["frequent", "regular", "occasional", "dormant"]);
+export type CadenceHint = z.infer<typeof CadenceHint>;
+
 export const AssetFrontmatter = z.object({
   asset: z.string(),
+  name: z.string().optional(),
   created: z.string(),
   cadence: z.string(),
+  cadence_hint: CadenceHint.default("regular"),
   status: z.enum(["active", "dormant", "killed"]).default("active"),
   last_engaged: z.string().optional(),
+  killed_at: z.string().optional(),
+  killed_reason: z.string().optional(),
 });
 export type AssetFrontmatter = z.infer<typeof AssetFrontmatter>;
 
@@ -96,4 +111,101 @@ export function readMarkdown<F>(
     logger.warn({ filePath, err }, "failed to read markdown file");
     return null;
   }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Asset file primitives (Day 3)
+// Pure-ish file I/O; the MCP tools are thin wrappers around these so
+// tests can verify behaviour without the SDK runtime.
+// ──────────────────────────────────────────────────────────────────
+
+export type RegisterAssetInput = {
+  name: string;
+  slug: string;
+  whatEngagementLooksLike: string;
+  cadence: string;
+  cadenceHint: CadenceHint;
+};
+
+export type RegisterAssetResult =
+  | { ok: true; path: string }
+  | { ok: false; reason: "invalid_slug" | "already_exists" };
+
+export function activeAssetPath(userId: string, slug: string): string {
+  return path.join(userDir(userId), "assets", `${slug}.md`);
+}
+
+export function killedAssetPath(userId: string, slug: string): string {
+  return path.join(userDir(userId), "assets", "_killed", `${slug}.md`);
+}
+
+export function writeAssetFile(
+  userId: string,
+  input: RegisterAssetInput,
+): RegisterAssetResult {
+  if (!isValidSlug(input.slug)) {
+    return { ok: false, reason: "invalid_slug" };
+  }
+  ensureUserTree(userId);
+  const target = activeAssetPath(userId, input.slug);
+  const archived = killedAssetPath(userId, input.slug);
+  if (existsSync(target) || existsSync(archived)) {
+    return { ok: false, reason: "already_exists" };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const body = matter.stringify(
+    [
+      `# ${input.name}`,
+      "",
+      "## What engagement looks like",
+      "",
+      input.whatEngagementLooksLike,
+      "",
+      "## Facts (user-stated, dated)",
+      "",
+      "## Engagement log",
+      "",
+    ].join("\n"),
+    {
+      asset: input.slug,
+      name: input.name,
+      created: today,
+      cadence: input.cadence,
+      cadence_hint: input.cadenceHint,
+      status: "active",
+    },
+  );
+  atomicWrite(target, body);
+  return { ok: true, path: target };
+}
+
+export type KillAssetResult =
+  | { ok: true; path: string }
+  | { ok: false; reason: "not_found" | "invalid_slug" };
+
+export function killAssetFile(
+  userId: string,
+  slug: string,
+  reason?: string,
+): KillAssetResult {
+  if (!isValidSlug(slug)) return { ok: false, reason: "invalid_slug" };
+  const src = activeAssetPath(userId, slug);
+  if (!existsSync(src)) return { ok: false, reason: "not_found" };
+
+  const raw = readFileSync(src, "utf8");
+  const parsed = matter(raw);
+  const today = new Date().toISOString().slice(0, 10);
+  const newFrontmatter: Record<string, unknown> = {
+    ...parsed.data,
+    status: "killed",
+    killed_at: today,
+  };
+  if (reason && reason.trim().length > 0) {
+    newFrontmatter.killed_reason = reason.trim();
+  }
+  const updated = matter.stringify(parsed.content, newFrontmatter);
+  const dst = killedAssetPath(userId, slug);
+  atomicWrite(dst, updated);
+  unlinkSync(src);
+  return { ok: true, path: dst };
 }

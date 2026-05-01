@@ -8,10 +8,18 @@ import { getSessionId, saveSessionId } from "../persistence/operational.js";
 import { loadSystemPrompt } from "./system-prompt.js";
 import { noUnverifiedSpecificsHook } from "./hooks/no-unverified-specifics.js";
 import { recallWriterAgent } from "./subagents/recall-writer.js";
-import { buildSendMessageMcpServer } from "./tools/send-telegram-message.js";
+import {
+  buildAgentMcpServer,
+  FQ_TOOLS,
+  MCP_SERVER_NAME,
+} from "./tools/index.js";
 
 const ALLOWED_FS_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"];
-const SEND_TOOL = "mcp__botherme-channel__send_telegram_message";
+const ALLOWED_CUSTOM_TOOLS = [
+  FQ_TOOLS.sendTelegramMessage,
+  FQ_TOOLS.registerAsset,
+  FQ_TOOLS.killAsset,
+];
 
 type TurnKind = "inbound" | "outbound";
 
@@ -34,7 +42,7 @@ async function runTurn(
   const filesReadThisTurn = new Set<string>();
   const hookCtx = { trace, filesReadThisTurn };
 
-  const mcpServer = buildSendMessageMcpServer(userId, trace);
+  const mcpServer = buildAgentMcpServer(userId, trace);
   const resumeSession = getSessionId(userId);
 
   let finalText = "";
@@ -47,10 +55,10 @@ async function runTurn(
         cwd,
         model: env.BOTHERME_MODEL_MAIN,
         systemPrompt: loadSystemPrompt(),
-        // Restrict built-ins to filesystem tools; outbound goes through the MCP tool.
+        // Restrict built-ins to filesystem tools; outbound goes through MCP tools.
         tools: ALLOWED_FS_TOOLS,
-        allowedTools: [...ALLOWED_FS_TOOLS, SEND_TOOL],
-        mcpServers: { "botherme-channel": mcpServer },
+        allowedTools: [...ALLOWED_FS_TOOLS, ...ALLOWED_CUSTOM_TOOLS],
+        mcpServers: { [MCP_SERVER_NAME]: mcpServer },
         agents: { "recall-writer": recallWriterAgent() },
         hooks: {
           PreToolUse: [{ hooks: [noUnverifiedSpecificsHook(hookCtx)] }],
