@@ -86,6 +86,25 @@ const stmts = {
     INSERT INTO refusal_log (user_id, ts, phrase, outcome, trace_path)
     VALUES (?, ?, ?, ?, ?)
   `),
+  selectDueUsers: db.prepare(`
+    SELECT user_id FROM scheduler_state
+    WHERE next_check <= ? AND (paused_until IS NULL OR paused_until <= ?)
+    LIMIT ?
+  `),
+  claimUser: db.prepare(`
+    UPDATE scheduler_state SET next_check = ?
+    WHERE user_id = ? AND next_check <= ?
+  `),
+  selectSchedulerState: db.prepare(`
+    SELECT user_id, next_check, last_outbound, last_inbound, consecutive_outbound, paused_until
+    FROM scheduler_state WHERE user_id = ?
+  `),
+  setNextCheck: db.prepare(`
+    UPDATE scheduler_state SET next_check = ? WHERE user_id = ?
+  `),
+  setPausedUntil: db.prepare(`
+    UPDATE scheduler_state SET paused_until = ? WHERE user_id = ?
+  `),
 };
 
 export function ensureUser(
@@ -131,4 +150,50 @@ export function logRefusal(
     outcome,
     tracePath,
   );
+}
+
+export type SchedulerStateRow = {
+  user_id: string;
+  next_check: number;
+  last_outbound: number | null;
+  last_inbound: number | null;
+  consecutive_outbound: number;
+  paused_until: number | null;
+};
+
+export function getDueUsers(nowSec: number, limit: number): string[] {
+  const rows = stmts.selectDueUsers.all(nowSec, nowSec, limit) as Array<{ user_id: string }>;
+  return rows.map((r) => r.user_id);
+}
+
+/**
+ * Atomic claim: bumps next_check forward only if it's still due.
+ * Returns true if this caller won the claim, false if a concurrent
+ * tick already grabbed it (changes === 0).
+ */
+export function claimUser(
+  userId: string,
+  nowSec: number,
+  provisionalNextSec: number,
+): boolean {
+  const result = stmts.claimUser.run(provisionalNextSec, userId, nowSec);
+  return result.changes > 0;
+}
+
+export function getSchedulerState(userId: string): SchedulerStateRow | null {
+  const row = stmts.selectSchedulerState.get(userId) as
+    | SchedulerStateRow
+    | undefined;
+  return row ?? null;
+}
+
+export function setNextCheck(userId: string, nextCheckSec: number): void {
+  stmts.setNextCheck.run(nextCheckSec, userId);
+}
+
+export function setPausedUntil(
+  userId: string,
+  pausedUntilSec: number | null,
+): void {
+  stmts.setPausedUntil.run(pausedUntilSec, userId);
 }

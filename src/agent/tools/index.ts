@@ -6,17 +6,26 @@ import { buildKillAssetTool } from "./kill-asset.js";
 
 export const MCP_SERVER_NAME = "botherme";
 
+export type AgentMcpServerOptions = {
+  /** When true, send_telegram_message logs instead of dispatching. */
+  dryRun?: boolean;
+};
+
 /**
  * Builds a per-turn MCP server with all custom tools, scoped to a single
  * user via closure-captured chatId. The server is short-lived: one per
  * `runTurn()` invocation.
  */
-export function buildAgentMcpServer(chatId: string, trace: Trace) {
+export function buildAgentMcpServer(
+  chatId: string,
+  trace: Trace,
+  opts: AgentMcpServerOptions = {},
+) {
   return createSdkMcpServer({
     name: MCP_SERVER_NAME,
     version: "0.0.1",
     tools: [
-      buildSendMessageTool(chatId, trace),
+      buildSendMessageTool(chatId, trace, { dryRun: opts.dryRun ?? false }),
       buildRegisterAssetTool(chatId, trace),
       buildKillAssetTool(chatId, trace),
     ],

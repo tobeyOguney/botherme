@@ -2,6 +2,7 @@ import matter from "gray-matter";
 import {
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   writeFileSync,
   existsSync,
@@ -182,6 +183,33 @@ export function writeAssetFile(
 export type KillAssetResult =
   | { ok: true; path: string }
   | { ok: false; reason: "not_found" | "invalid_slug" };
+
+/**
+ * Counts active assets for a user by reading the filesystem (the source
+ * of truth). Killed assets in `_killed/` don't count.
+ */
+export function countActiveAssets(userId: string): number {
+  const dir = path.join(userDir(userId), "assets");
+  if (!existsSync(dir)) return 0;
+  let count = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".md")) count += 1;
+  }
+  return count;
+}
+
+/**
+ * Maps active asset count to a scheduler cadence bucket. Approximation —
+ * a user with many assets is more likely to want frequent contact, but
+ * the agent can still go quiet on any given outbound.
+ */
+export function deriveCadenceHint(userId: string): CadenceHint {
+  const n = countActiveAssets(userId);
+  if (n === 0) return "dormant";
+  if (n === 1) return "occasional";
+  if (n <= 3) return "regular";
+  return "frequent";
+}
 
 export function killAssetFile(
   userId: string,

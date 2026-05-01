@@ -23,10 +23,16 @@ const ALLOWED_CUSTOM_TOOLS = [
 
 type TurnKind = "inbound" | "outbound";
 
+export type RunTurnOptions = {
+  /** When true: stub the send tool, skip session persistence, skip recall-writer. */
+  dryRun?: boolean;
+};
+
 async function runTurn(
   userId: string,
   promptText: string,
   kind: TurnKind,
+  opts: RunTurnOptions = {},
 ): Promise<string> {
   const cwd = path.resolve(env.BOTHERME_USERS_DIR, userId);
   ensureUserTree(userId);
@@ -46,8 +52,8 @@ async function runTurn(
     refusalCount: { value: 0 },
   };
 
-  const mcpServer = buildAgentMcpServer(userId, trace);
-  const resumeSession = getSessionId(userId);
+  const mcpServer = buildAgentMcpServer(userId, trace, { dryRun: opts.dryRun ?? false });
+  const resumeSession = opts.dryRun ? null : getSessionId(userId);
 
   let finalText = "";
   let sessionId: string | undefined;
@@ -99,7 +105,7 @@ async function runTurn(
       }
     }
 
-    if (sessionId) saveSessionId(userId, sessionId);
+    if (sessionId && !opts.dryRun) saveSessionId(userId, sessionId);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
@@ -122,17 +128,23 @@ async function runTurn(
 export async function runInboundTurn(
   userId: string,
   message: string,
+  opts: RunTurnOptions = {},
 ): Promise<string> {
-  const reply = await runTurn(userId, message, "inbound");
-  // Run the recall pass under the same lock-window. Errors are caught
-  // inside runRecallWriter and do not bubble — the user has already
-  // received their reply.
-  await runRecallWriter(userId, message, reply, new Trace(userId));
+  const reply = await runTurn(userId, message, "inbound", opts);
+  // Skip the recall pass on dry-run so memory state doesn't drift between
+  // replays. Errors inside runRecallWriter are caught there and do not
+  // bubble — the user has already received their reply.
+  if (!opts.dryRun) {
+    await runRecallWriter(userId, message, reply, new Trace(userId));
+  }
   return reply;
 }
 
-export async function runOutboundTurn(userId: string): Promise<string> {
+export async function runOutboundTurn(
+  userId: string,
+  opts: RunTurnOptions = {},
+): Promise<string> {
   const prompt =
     "Outbound check-in. Read index.md first. Decide if there's anything specific worth saying right now — choosing to stay quiet is fine and often correct. If you decide to speak, deliver via send_telegram_message; if not, just say <silent/> and stop.";
-  return runTurn(userId, prompt, "outbound");
+  return runTurn(userId, prompt, "outbound", opts);
 }

@@ -2,6 +2,11 @@ import { env } from "./config/env.js";
 import { logger } from "./observability/logger.js";
 import "./persistence/operational.js"; // side-effect: opens DB and runs migrations
 import { startTelegram, stopTelegram } from "./channel/telegram.js";
+import { startScheduler, stopScheduler } from "./scheduler/index.js";
+import {
+  scheduleDailySummary,
+  stopDailySummary,
+} from "./observability/daily-summary.js";
 
 async function main(): Promise<void> {
   logger.info(
@@ -16,9 +21,13 @@ async function main(): Promise<void> {
   );
 
   await startTelegram();
+  startScheduler();
+  scheduleDailySummary();
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, "shutting down");
+    stopDailySummary();
+    stopScheduler();
     await stopTelegram();
     process.exit(0);
   };
