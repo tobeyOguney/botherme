@@ -1,0 +1,37 @@
+# Personal research docs (kept out of source control per founder's preference)
+idea.md
+research.md
+research-openclaw-pivot.md
+research-runtime-and-memory.md
+
+# Dependencies
+node_modules/
+
+# Secrets
+.env
+.env.local
+
+# Runtime state — user data, traces, operational DB
+users/*
+!users/.gitkeep
+traces/*
+!traces/.gitkeep
+data/*
+!data/.gitkeep
+logs/
+
+# Build artefacts (we don't emit, but just in case)
+dist/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Claude Code project state — not relevant to consumers
+.claude/
