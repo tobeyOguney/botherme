@@ -7,7 +7,7 @@ import { ensureUserTree } from "../persistence/memory.js";
 import { getSessionId, saveSessionId } from "../persistence/operational.js";
 import { loadSystemPrompt } from "./system-prompt.js";
 import { noUnverifiedSpecificsHook } from "./hooks/no-unverified-specifics.js";
-import { recallWriterAgent } from "./subagents/recall-writer.js";
+import { runRecallWriter } from "./recall.js";
 import {
   buildAgentMcpServer,
   FQ_TOOLS,
@@ -39,8 +39,12 @@ async function runTurn(
     ...(kind === "inbound" ? { message: promptText } : {}),
   });
 
-  const filesReadThisTurn = new Set<string>();
-  const hookCtx = { trace, filesReadThisTurn };
+  const hookCtx = {
+    userId,
+    trace,
+    filesTouchedThisTurn: new Set<string>(),
+    refusalCount: { value: 0 },
+  };
 
   const mcpServer = buildAgentMcpServer(userId, trace);
   const resumeSession = getSessionId(userId);
@@ -59,7 +63,6 @@ async function runTurn(
         tools: ALLOWED_FS_TOOLS,
         allowedTools: [...ALLOWED_FS_TOOLS, ...ALLOWED_CUSTOM_TOOLS],
         mcpServers: { [MCP_SERVER_NAME]: mcpServer },
-        agents: { "recall-writer": recallWriterAgent() },
         hooks: {
           PreToolUse: [{ hooks: [noUnverifiedSpecificsHook(hookCtx)] }],
         },
@@ -120,7 +123,12 @@ export async function runInboundTurn(
   userId: string,
   message: string,
 ): Promise<string> {
-  return runTurn(userId, message, "inbound");
+  const reply = await runTurn(userId, message, "inbound");
+  // Run the recall pass under the same lock-window. Errors are caught
+  // inside runRecallWriter and do not bubble — the user has already
+  // received their reply.
+  await runRecallWriter(userId, message, reply, new Trace(userId));
+  return reply;
 }
 
 export async function runOutboundTurn(userId: string): Promise<string> {

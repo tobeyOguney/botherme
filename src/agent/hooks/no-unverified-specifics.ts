@@ -1,49 +1,105 @@
-/**
- * Day-5 work tightens this. v0 stub returns `allow` for every send so the
- * inbound/outbound path can be exercised end-to-end. The hook signature and
- * wiring point are committed now; the regex/grounding implementation lands
- * with the dedicated test suite in `tests/no-unverified-specifics.test.ts`.
- */
+import { readFileSync, existsSync } from "node:fs";
+import path from "node:path";
 import type { HookCallback, PreToolUseHookInput } from "@anthropic-ai/claude-agent-sdk";
+import { logRefusal } from "../../persistence/operational.js";
 import type { Trace } from "../../observability/trace.js";
+import { FQ_TOOLS } from "../tools/index.js";
+import { evaluateMessage } from "./specifics-detector.js";
 
-export type NoUnverifiedSpecificsContext = {
+export type HookContext = {
+  userId: string;
   trace: Trace;
-  filesReadThisTurn: Set<string>;
+  // Absolute paths of files the agent has read/written this turn.
+  // The hook re-reads them at send-time to build the corpus.
+  filesTouchedThisTurn: Set<string>;
+  // Refusal counter per turn — we don't loop forever.
+  refusalCount: { value: number };
 };
 
-export function noUnverifiedSpecificsHook(
-  ctx: NoUnverifiedSpecificsContext,
-): HookCallback {
+const MAX_REFUSALS_PER_TURN = 3;
+
+function resolveAbs(cwd: string, p: string): string {
+  return path.isAbsolute(p) ? p : path.resolve(cwd, p);
+}
+
+function buildCorpus(paths: Set<string>): string {
+  const chunks: string[] = [];
+  for (const p of paths) {
+    if (!existsSync(p)) continue;
+    try {
+      chunks.push(readFileSync(p, "utf8"));
+    } catch {
+      // best-effort; a corrupt file shouldn't crash the hook
+    }
+  }
+  return chunks.join("\n\n");
+}
+
+export function noUnverifiedSpecificsHook(ctx: HookContext): HookCallback {
   return async (input) => {
-    if (input.hook_event_name !== "PreToolUse") {
-      return { continue: true };
-    }
+    if (input.hook_event_name !== "PreToolUse") return { continue: true };
     const pre = input as PreToolUseHookInput;
+    const cwd = pre.cwd;
 
-    // Track files the agent reads so the Day-5 grounding check has a corpus.
-    if (pre.tool_name === "Read") {
-      const ti = pre.tool_input as { file_path?: string } | undefined;
-      if (ti?.file_path) ctx.filesReadThisTurn.add(ti.file_path);
+    // Track every file the agent touches this turn — Read, Write, Edit
+    // all contribute to the grounding corpus. Writes count because asset
+    // registration writes user-stated facts the agent should be able to
+    // confirm in the same turn.
+    const ti = pre.tool_input as { file_path?: string } | undefined;
+    if (
+      ti?.file_path &&
+      (pre.tool_name === "Read" ||
+        pre.tool_name === "Write" ||
+        pre.tool_name === "Edit")
+    ) {
+      ctx.filesTouchedThisTurn.add(resolveAbs(cwd, ti.file_path));
     }
 
-    if (pre.tool_name !== "send_telegram_message") {
+    if (pre.tool_name !== FQ_TOOLS.sendTelegramMessage) {
       return { continue: true };
     }
 
-    // TODO(day-5): inspect message text, run specifics detector, ground each
-    // claim against `ctx.filesReadThisTurn`, refuse with reason on failure.
+    const sendInput = pre.tool_input as { text?: string } | undefined;
+    const text = sendInput?.text ?? "";
+    const corpus = buildCorpus(ctx.filesTouchedThisTurn);
+    const verdict = evaluateMessage(text, corpus);
+
+    if (verdict.ok) {
+      ctx.trace.write({
+        type: "hook_decision",
+        hook: "no-unverified-specifics",
+        decision: "allow",
+      });
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "allow",
+        },
+      };
+    }
+
+    ctx.refusalCount.value += 1;
+    const phrase = verdict.unverified.map((s) => s.raw).join(" | ");
+    const outcome =
+      ctx.refusalCount.value >= MAX_REFUSALS_PER_TURN ? "hard_failure" : "revised";
+    logRefusal(ctx.userId, phrase, outcome, ctx.trace.path);
     ctx.trace.write({
-      hook: "no-unverified-specifics",
       type: "hook_decision",
-      decision: "allow",
-      reason: "stub — Day 5 implementation pending",
+      hook: "no-unverified-specifics",
+      decision: "deny",
+      reason: verdict.reason,
     });
+
+    const finalReason =
+      ctx.refusalCount.value >= MAX_REFUSALS_PER_TURN
+        ? `${verdict.reason}\n\nYou've been refused ${ctx.refusalCount.value} times this turn. Stop trying to ground this; either rephrase generically with no specifics, or stay silent.`
+        : verdict.reason;
 
     return {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
-        permissionDecision: "allow",
+        permissionDecision: "deny",
+        permissionDecisionReason: finalReason,
       },
     };
   };
