@@ -137,10 +137,9 @@ no Terraform changes needed for a typical Node container.
 | IPv4 address | ~€0.50 |
 | **Total** | **~€4.90** |
 
-Switch `server_type` to `cax11` (arm64, 4 GB RAM) for similar pricing if your
-image supports `linux/arm64`. The CI workflow above only builds `amd64`;
-add `platforms: linux/amd64,linux/arm64` to `build-push-action` to enable
-multi-arch.
+The bundled CI workflow builds multi-arch (`linux/amd64,linux/arm64`), so
+`server_type = "cax11"` (ARM Ampere, 2 vCPU / 4 GB, ~€3.80/mo) is a
+drop-in cheaper option.
 
 Hetzner occasionally pulls server types from individual datacentres. If
 `terraform apply` fails with `server type X not found`, try a different
