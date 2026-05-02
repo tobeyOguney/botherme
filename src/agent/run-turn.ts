@@ -131,11 +131,15 @@ export async function runInboundTurn(
   opts: RunTurnOptions = {},
 ): Promise<string> {
   const reply = await runTurn(userId, message, "inbound", opts);
-  // Skip the recall pass on dry-run so memory state doesn't drift between
-  // replays. Errors inside runRecallWriter are caught there and do not
-  // bubble — the user has already received their reply.
+  // Fire-and-forget the recall pass. The user's reply must not wait on
+  // memory updates; recall-writer's own try/catch swallows errors. Skip
+  // entirely on dry-run so replay never mutates memory state.
   if (!opts.dryRun) {
-    await runRecallWriter(userId, message, reply, new Trace(userId));
+    void runRecallWriter(userId, message, reply, new Trace(userId)).catch(
+      (err) => {
+        logger.warn({ err, userId }, "recall-writer fire-and-forget failed");
+      },
+    );
   }
   return reply;
 }

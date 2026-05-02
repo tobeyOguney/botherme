@@ -6,6 +6,8 @@ import type { Trace } from "../observability/trace.js";
 import { loadSubagentPrompt } from "./system-prompt.js";
 
 const RECALL_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"];
+const RECALL_MAX_TURNS = 20;
+const RECALL_TIMEOUT_MS = 60_000;
 
 /**
  * End-of-turn memory writer. Runs as a separate SDK invocation (not as a
@@ -13,7 +15,8 @@ const RECALL_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"];
  * agent's judgment — memory updates are infrastructure, not a decision.
  *
  * Failure here must not propagate: the user already got their reply.
- * We log and move on; the next turn's index re-read will catch up.
+ * We log and move on; the next turn's reads will pick up from whatever
+ * partial state exists.
  */
 export async function runRecallWriter(
   userId: string,
@@ -30,10 +33,13 @@ export async function runRecallWriter(
     `USER: ${userMessage}`,
     `ASSISTANT: ${assistantReply || "<silent>"}`,
     "",
-    "Update memory now per your guidelines. Append to journal/${today}.md and update any touched assets/<slug>.md files. Do not call send_telegram_message.",
+    `Update memory now per your guidelines. Append to journal/${today}.md and update any touched assets/<slug>.md files. Do not call send_telegram_message. Be efficient — most turns need at most one journal append plus zero or one asset edit.`,
   ].join("\n");
 
   trace.write({ type: "subagent_invoke", name: "recall-writer" });
+
+  const abortController = new AbortController();
+  const timer = setTimeout(() => abortController.abort(), RECALL_TIMEOUT_MS);
 
   try {
     const q = query({
@@ -48,8 +54,10 @@ export async function runRecallWriter(
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         persistSession: false,
-        maxTurns: 8,
-        stderr: (data) => logger.debug({ stderr: data, scope: "recall-writer" }, "sdk stderr"),
+        maxTurns: RECALL_MAX_TURNS,
+        abortController,
+        stderr: (data) =>
+          logger.debug({ stderr: data, scope: "recall-writer" }, "sdk stderr"),
       },
     });
 
@@ -75,5 +83,7 @@ export async function runRecallWriter(
     const msg = err instanceof Error ? err.message : String(err);
     trace.write({ type: "error", message: `recall-writer failed: ${msg}` });
     logger.warn({ err, userId }, "recall-writer failed; continuing");
+  } finally {
+    clearTimeout(timer);
   }
 }
