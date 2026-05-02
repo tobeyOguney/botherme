@@ -1,0 +1,98 @@
+#cloud-config
+# Generic Docker-on-Hetzner template.
+# Mounts an attached Hetzner Volume at /mnt/data, runs `${docker_image}` under
+# a systemd unit, restarts on crash, pulls newer images on `systemctl restart`.
+
+package_update: true
+package_upgrade: false
+packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - jq
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/${project_name}/env
+    permissions: "0600"
+    owner: root:root
+    content: |
+%{ for k, v in app_env ~}
+      ${k}=${v}
+%{ endfor ~}
+
+  - path: /etc/systemd/system/${project_name}.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=${project_name} (containerised)
+      After=docker.service network-online.target
+      Requires=docker.service
+      Wants=network-online.target
+
+      [Service]
+      Restart=always
+      RestartSec=10
+      TimeoutStartSec=300
+      TimeoutStopSec=45
+      EnvironmentFile=/etc/${project_name}/env
+      ExecStartPre=/bin/bash -c 'until mountpoint -q /mnt/data; do sleep 2; done'
+      ExecStartPre=-/usr/bin/docker rm -f ${project_name}
+      ExecStartPre=/usr/bin/docker pull ${docker_image}
+      ExecStart=/usr/bin/docker run --rm --name ${project_name} \
+        --env-file /etc/${project_name}/env \
+        --log-driver=journald \
+        -v /mnt/data/data:/data \
+        -v /mnt/data/users:/users \
+        -v /mnt/data/traces:/traces \
+        ${docker_image}
+      ExecStop=/usr/bin/docker stop -t 30 ${project_name}
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /usr/local/sbin/mount-data-volume.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      DEV="/dev/disk/by-id/scsi-0HC_Volume_${volume_id}"
+      MNT="/mnt/data"
+
+      # Volume is attached out of band by Terraform (hcloud_volume_attachment),
+      # which can lag a cloud-init runcmd by several minutes the first time.
+      for i in $(seq 1 180); do
+        [ -e "$DEV" ] && break
+        sleep 2
+      done
+      if [ ! -e "$DEV" ]; then
+        echo "volume device $DEV did not appear after 360s" >&2
+        exit 1
+      fi
+
+      if ! blkid "$DEV" >/dev/null 2>&1; then
+        mkfs.ext4 -F -L ${project_name}-data "$DEV"
+      fi
+
+      mkdir -p "$MNT"
+      if ! grep -q "$DEV" /etc/fstab; then
+        echo "$DEV $MNT ext4 discard,nofail,defaults 0 0" >> /etc/fstab
+      fi
+      mount -a
+      mountpoint -q "$MNT" || { echo "$MNT did not mount" >&2; exit 1; }
+      mkdir -p "$MNT/data" "$MNT/users" "$MNT/traces"
+      # `node` user inside the container image is uid 1000.
+      chown -R 1000:1000 "$MNT/data" "$MNT/users" "$MNT/traces"
+
+runcmd:
+  - [ bash, -c, "curl -fsSL https://get.docker.com | sh" ]
+  - [ systemctl, enable, --now, docker ]
+  - [ /usr/local/sbin/mount-data-volume.sh ]
+%{ if docker_registry_username != "" ~}
+  - [ bash, -c, "echo '${docker_registry_password}' | docker login ${docker_registry} -u '${docker_registry_username}' --password-stdin" ]
+%{ endif ~}
+  - [ systemctl, daemon-reload ]
+  - [ systemctl, enable, --now, ${project_name}.service ]
+  - [ systemctl, enable, --now, unattended-upgrades.service ]

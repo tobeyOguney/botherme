@@ -35,3 +35,11 @@ Thumbs.db
 
 # Claude Code project state — not relevant to consumers
 .claude/
+
+# Terraform — note: .terraform.lock.hcl is intentionally tracked.
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+terraform/*.auto.tfvars
+terraform/crash.log

@@ -1,0 +1,32 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# Sensitive values can also be passed via TF_VAR_<name> env vars.
+
+# hcloud_token = "..."   # prefer: export TF_VAR_hcloud_token=...
+
+project_name = "botherme"
+location     = "fsn1"
+server_type  = "cx22"
+
+# Replace OWNER with your GitHub username/org.
+docker_image = "ghcr.io/OWNER/botherme:latest"
+
+# For private GHCR images, also set:
+# docker_registry          = "ghcr.io"
+# docker_registry_username = "OWNER"
+# docker_registry_password = "ghp_..."   # prefer: TF_VAR_docker_registry_password
+
+ssh_public_keys = [
+  "ssh-ed25519 AAAA... you@host",
+]
+
+# Tighten in production. e.g. ["203.0.113.4/32"]
+ssh_allowed_cidrs = ["0.0.0.0/0", "::/0"]
+
+# Application secrets and overrides. Required keys: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN.
+# Prefer TF_VAR_app_env over committing this block.
+app_env = {
+  ANTHROPIC_API_KEY               = "sk-ant-..."
+  TELEGRAM_BOT_TOKEN              = "12345:ABC..."
+  BOTHERME_LOG_LEVEL              = "info"
+  BOTHERME_ALLOWED_TELEGRAM_USERS = ""
+}
