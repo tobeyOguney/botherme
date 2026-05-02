@@ -28,6 +28,12 @@ ENV NODE_ENV=production \
     BOTHERME_TRACES_DIR=/traces \
     BOTHERME_PROMPTS_DIR=/app/prompts
 
+# git + ripgrep are required by @anthropic-ai/claude-agent-sdk's bundled
+# cli.js — without them every Claude Code subprocess exits 1 immediately.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ripgrep ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
 RUN mkdir -p /data /users /traces \
  && chown -R node:node /data /users /traces
 
