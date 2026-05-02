@@ -8,18 +8,37 @@ It is not a planner, tracker, tutor, or coach. It does not show streaks, dashboa
 
 ## Run it yourself
 
-You'll need: Node 20+, pnpm, a Telegram bot token (via [`@BotFather`](https://t.me/BotFather)), an Anthropic API key.
+You'll need a Telegram bot token (via [`@BotFather`](https://t.me/BotFather)) and an [Anthropic API key](https://console.anthropic.com/).
+
+By default the bot is **closed** — set `BOTHERME_ALLOWED_TELEGRAM_USERS` to a comma-separated list of Telegram user IDs to let specific people through. Empty = nobody.
+
+### Locally (Node 20+, pnpm)
 
 ```bash
-git clone <this repo> botherme && cd botherme
+git clone https://github.com/tobeyOguney/botherme.git && cd botherme
 pnpm install
 cp .env.example .env       # paste TELEGRAM_BOT_TOKEN and ANTHROPIC_API_KEY
-pnpm dev                   # local; or: pnpm start (with pm2)
+pnpm dev                   # watch mode; or `pnpm start` for plain run
 ```
 
-Open Telegram, message your bot. The bot remembers across restarts; user data lives in `./users/<chatId>/` as plain markdown files. You can read them.
+Open Telegram, message your bot. The bot remembers across restarts.
 
-By default the bot is **closed** — set `BOTHERME_ALLOWED_TELEGRAM_USERS` to a comma-separated list of chat IDs to allow specific people. Empty = nobody.
+### As a container
+
+A multi-arch image is published to GHCR on every push to `main`:
+
+```bash
+docker run --rm \
+  -e ANTHROPIC_API_KEY=sk-ant-... \
+  -e TELEGRAM_BOT_TOKEN=12345:ABC... \
+  -e BOTHERME_ALLOWED_TELEGRAM_USERS=YOUR_CHAT_ID \
+  -v "$PWD/data:/data" -v "$PWD/users:/users" -v "$PWD/traces:/traces" \
+  ghcr.io/tobeyoguney/botherme:latest
+```
+
+### Hetzner Cloud, end to end
+
+There's a self-contained Terraform module under [`terraform/`](terraform/) that provisions a single Hetzner VM, attaches a persistent volume for `/data` and `/users`, locks the firewall to SSH-only, and runs the container under systemd with auto-pull on restart. About €5/month. See [`terraform/README.md`](terraform/README.md) for the bootstrap. The same module works as a template for any other long-running Node container with similar shape (no inbound HTTP, file-based state).
 
 ## What's in the directory after a few weeks of use
 
