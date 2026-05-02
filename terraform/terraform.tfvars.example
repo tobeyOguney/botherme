@@ -5,7 +5,7 @@
 
 project_name = "botherme"
 location     = "fsn1"
-server_type  = "cx22"
+server_type  = "cpx11"   # AMD x86. cax11 = arm64 (cheaper but needs arm64 image)
 
 # Replace OWNER with your GitHub username/org.
 docker_image = "ghcr.io/OWNER/botherme:latest"

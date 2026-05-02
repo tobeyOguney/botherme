@@ -132,15 +132,20 @@ no Terraform changes needed for a typical Node container.
 
 | Resource | Monthly |
 |---|---|
-| `cx22` server | ~€4.50 |
+| `cpx11` server (default) | ~€4.00 |
 | 10 GB volume | ~€0.40 |
 | IPv4 address | ~€0.50 |
-| **Total** | **~€5.40** |
+| **Total** | **~€4.90** |
 
-Switch `server_type` to `cax11` (arm64, same vCPU/RAM) for ~€1 less if your
+Switch `server_type` to `cax11` (arm64, 4 GB RAM) for similar pricing if your
 image supports `linux/arm64`. The CI workflow above only builds `amd64`;
 add `platforms: linux/amd64,linux/arm64` to `build-push-action` to enable
 multi-arch.
+
+Hetzner occasionally pulls server types from individual datacentres. If
+`terraform apply` fails with `server type X not found`, try a different
+`location` (`fsn1` / `nbg1` / `hel1` / `ash` / `hil` / `sin`) or pick another
+type from `hcloud server-type list`.
 
 ## Tearing down
 

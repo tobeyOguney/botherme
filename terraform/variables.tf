@@ -17,9 +17,15 @@ variable "location" {
 }
 
 variable "server_type" {
-  description = "Hetzner server type. cx22 = 2 vCPU / 4 GB / x86; cax11 = 2 vCPU / 4 GB / arm64."
+  description = <<-EOT
+    Hetzner server type. Cheapest options as of 2026:
+      cpx11 = 2 vCPU / 2 GB AMD  (~€4/mo, widely available)
+      cax11 = 2 vCPU / 4 GB ARM  (~€4/mo, requires arm64 image)
+      cx22  = 2 vCPU / 4 GB Intel (sporadically out of stock per DC)
+    Run `hcloud server-type list` to see what's actually available.
+  EOT
   type        = string
-  default     = "cx22"
+  default     = "cpx11"
 }
 
 variable "image" {
