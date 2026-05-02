@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, type Context } from "grammy";
 import { autoRetry } from "@grammyjs/auto-retry";
 import { env } from "../config/env.js";
 import { logger } from "../observability/logger.js";
@@ -6,6 +6,26 @@ import { ensureUser, recordInbound } from "../persistence/operational.js";
 import { ensureUserTree } from "../persistence/memory.js";
 import { runInboundTurn } from "../agent/run-turn.js";
 import { withUserLock } from "../persistence/locks.js";
+
+// Telegram's typing action expires after ~5s. Re-send every 4s while we
+// work so the indicator stays visible for the duration of a slow turn.
+const TYPING_REFRESH_MS = 4_000;
+
+async function withTypingIndicator<T>(
+  ctx: Context,
+  fn: () => Promise<T>,
+): Promise<T> {
+  // Best-effort initial action; ignore failures — they shouldn't block the turn.
+  ctx.replyWithChatAction("typing").catch(() => {});
+  const interval = setInterval(() => {
+    ctx.replyWithChatAction("typing").catch(() => {});
+  }, TYPING_REFRESH_MS);
+  try {
+    return await fn();
+  } finally {
+    clearInterval(interval);
+  }
+}
 
 let botInstance: Bot | null = null;
 
@@ -52,7 +72,9 @@ export function registerHandlers(): void {
 
     try {
       await withUserLock(userId, async () => {
-        const reply = await runInboundTurn(userId, ctx.message.text);
+        const reply = await withTypingIndicator(ctx, () =>
+          runInboundTurn(userId, ctx.message.text),
+        );
         if (reply.trim().length > 0) {
           await ctx.reply(reply);
         }
