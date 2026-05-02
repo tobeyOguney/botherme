@@ -15,11 +15,16 @@ async function withTypingIndicator<T>(
   ctx: Context,
   fn: () => Promise<T>,
 ): Promise<T> {
-  // Best-effort initial action; ignore failures — they shouldn't block the turn.
-  ctx.replyWithChatAction("typing").catch(() => {});
-  const interval = setInterval(() => {
-    ctx.replyWithChatAction("typing").catch(() => {});
-  }, TYPING_REFRESH_MS);
+  const sendTyping = (label: string): void => {
+    ctx
+      .replyWithChatAction("typing")
+      .then(() => logger.debug({ label }, "typing action sent"))
+      .catch((err) =>
+        logger.warn({ err, label }, "typing action failed"),
+      );
+  };
+  sendTyping("initial");
+  const interval = setInterval(() => sendTyping("refresh"), TYPING_REFRESH_MS);
   try {
     return await fn();
   } finally {
