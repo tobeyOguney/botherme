@@ -33,7 +33,11 @@ docker run --rm --name <project_name> \
 2. Terraform `>= 1.6`.
 3. The application image already published to a registry. For botherMe the
    default CI workflow (`.github/workflows/docker.yml`) pushes to
-   `ghcr.io/<owner>/botherme`.
+   `ghcr.io/<owner>/botherme`. Note: GHCR packages start **private** even
+   when the source repo is public — flip it under
+   `https://github.com/users/<owner>/packages/container/botherme/settings`
+   if you want unauthenticated pulls. Otherwise set the
+   `docker_registry_*` variables with a `read:packages` PAT.
 4. An SSH key pair on your machine — the public key goes into
    `ssh_public_keys`.
 
