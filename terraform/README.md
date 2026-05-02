@@ -70,25 +70,39 @@ ssh root@$(terraform output -raw server_ipv4) \
 Once `botherme.service` is `active (running)`, send `/start` to the bot in
 Telegram to confirm.
 
-## Updating the app
+## Updating
 
-The systemd unit re-pulls the image each time it starts, so the simplest
-update is:
+The module separates three update flows so config tweaks don't replace the VM:
+
+### Application config (`app_env`)
+
+Edit `terraform.tfvars`, then `terraform apply`. A `null_resource.env_sync`
+SSHes in, rewrites `/etc/<project>/env`, and restarts the systemd unit.
+No VM replacement. Requires the SSH key in `ssh_public_keys` to be loaded
+in your `ssh-agent` (or available at `~/.ssh/id_ed25519`).
+
+### Application image
+
+The systemd unit re-pulls the image each time it starts, so for `:latest`:
 
 ```bash
 ssh root@$(terraform output -raw server_ipv4) systemctl restart botherme
 ```
 
-This works whenever you push a new image to the same tag (e.g. `:latest`).
-For pinned tags, bump `docker_image` in `terraform.tfvars` and
-`terraform apply` (cloud-init has already run, so a tag change won't trigger
-a re-deploy on its own — restart the service after applying).
+For pinned tags (e.g. `:v1.2.3`), bump `docker_image` in `terraform.tfvars`,
+SSH in, edit `/etc/systemd/system/<project>.service` to match, then
+`systemctl daemon-reload && systemctl restart <project>`. Or just point
+`docker_image` at `:latest` and avoid the dance.
 
-## Updating infrastructure
+### Infrastructure
 
-Most variable changes (firewall CIDRs, additional SSH keys, server type)
-apply in place or trigger a server replacement. The volume is preserved
+Server type, location, volume size, firewall CIDRs, SSH keys: edit
+`terraform.tfvars` and `terraform apply`. Most apply in place; `server_type`
+and `location` force a server replacement. The volume is preserved
 across replacements thanks to `prevent_destroy`.
+
+`user_data` is intentionally ignored after the initial boot — see the
+lifecycle block in `main.tf` for the rationale.
 
 ## Backups
 

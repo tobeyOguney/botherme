@@ -5,6 +5,11 @@ locals {
   )
 
   ssh_keys_indexed = { for idx, key in var.ssh_public_keys : tostring(idx) => key }
+
+  # Sorted for stable output across applies; same format Docker --env-file expects.
+  env_file_content = join("\n", [
+    for k in sort(keys(var.app_env)) : "${k}=${var.app_env[k]}"
+  ])
 }
 
 resource "hcloud_ssh_key" "this" {
@@ -63,9 +68,12 @@ resource "hcloud_server" "app" {
   }
 
   lifecycle {
-    # The volume_id is interpolated into user_data; rebuilding the VM on
-    # cloud-init changes is intentional — that's how config gets applied.
-    ignore_changes = []
+    # user_data is consumed only on first boot. Changing app_env, docker_image,
+    # etc. would otherwise force a VM replacement. Config drift after the
+    # initial apply is reconciled out of band:
+    #   - app_env  -> null_resource.env_sync below (file push + service restart)
+    #   - image    -> `ssh root@... systemctl restart <project>` (unit re-pulls)
+    ignore_changes = [user_data]
   }
 }
 
@@ -73,4 +81,44 @@ resource "hcloud_volume_attachment" "data" {
   volume_id = hcloud_volume.data.id
   server_id = hcloud_server.app.id
   automount = false
+}
+
+# Pushes /etc/<project>/env on every app_env change and restarts the service.
+# Requires SSH reachability from wherever Terraform runs. Uses ssh-agent /
+# default keys; no extra variables needed.
+resource "null_resource" "env_sync" {
+  triggers = {
+    env_hash  = sha256(local.env_file_content)
+    server_id = hcloud_server.app.id
+  }
+
+  connection {
+    type    = "ssh"
+    user    = "root"
+    host    = hcloud_server.app.ipv4_address
+    timeout = "5m"
+  }
+
+  # Wait for cloud-init to finish on the very first apply so /etc/<project>/
+  # exists and the systemd unit is registered.
+  provisioner "remote-exec" {
+    inline = [
+      "cloud-init status --wait >/dev/null 2>&1 || true",
+      "mkdir -p /etc/${var.project_name}",
+    ]
+  }
+
+  provisioner "file" {
+    content     = local.env_file_content
+    destination = "/etc/${var.project_name}/env"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod 600 /etc/${var.project_name}/env",
+      "systemctl restart ${var.project_name}.service",
+    ]
+  }
+
+  depends_on = [hcloud_volume_attachment.data]
 }
