@@ -213,6 +213,47 @@ describe("regenerateIndex", () => {
     expect(parsed.content).not.toContain("- **Drop**");
   });
 
+  it("lists exploring assets in their own section, not in active count", () => {
+    memory.ensureUserTree(USER_ID);
+    memory.writeAssetFile(USER_ID, {
+      name: "Active",
+      slug: "active",
+      whatEngagementLooksLike: "do the thing",
+      cadence: "weekly",
+      cadenceHint: "occasional",
+    });
+    // Hand-roll an "exploring" asset since register_asset only writes active.
+    const fm = matter.stringify("# Swedish\n\nuser mentioned wanting to learn", {
+      asset: "swedish",
+      name: "Swedish",
+      created: "2026-05-03",
+      cadence: null,
+      cadence_hint: null,
+      status: "exploring",
+    });
+    const exploringPath = path.join(
+      process.env.BOTHERME_USERS_DIR!,
+      USER_ID,
+      "assets",
+      "swedish.md",
+    );
+    require("node:fs").writeFileSync(exploringPath, fm, "utf8");
+
+    memory.regenerateIndex(USER_ID);
+
+    const idxPath = path.join(
+      process.env.BOTHERME_USERS_DIR!,
+      USER_ID,
+      "index.md",
+    );
+    const parsed = matter(readFileSync(idxPath, "utf8"));
+    expect(parsed.data.active_assets).toBe(1);
+    expect(parsed.content).toContain("Active");
+    expect(parsed.content).toContain("Exploring (no cadence yet)");
+    expect(parsed.content).toContain("Swedish");
+    expect(parsed.content).toContain("ask the user to commit or drop");
+  });
+
   it("renders the empty state when no assets exist", () => {
     memory.ensureUserTree(USER_ID);
     memory.regenerateIndex(USER_ID);
