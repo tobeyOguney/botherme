@@ -26,10 +26,20 @@ export type IndexFrontmatter = z.infer<typeof IndexFrontmatter>;
 export const CadenceHint = z.enum(["frequent", "regular", "occasional", "dormant"]);
 export type CadenceHint = z.infer<typeof CadenceHint>;
 
+// YAML auto-parses bare ISO dates (`2026-05-02`) into Date objects, but the
+// rest of the codebase only knows how to handle date *strings*. Coerce both
+// shapes to ISO YYYY-MM-DD. The .pipe(z.string()) at the end is what makes
+// the inferred output type narrow cleanly to `string` so .nullable().optional()
+// composes the way TS expects.
+const DateString = z
+  .union([z.string(), z.date()])
+  .transform((v) => (v instanceof Date ? v.toISOString().slice(0, 10) : v))
+  .pipe(z.string());
+
 export const AssetFrontmatter = z.object({
   asset: z.string(),
   name: z.string().nullable().optional(),
-  created: z.string(),
+  created: DateString,
   // Nullable because "exploring" assets don't have a cadence committed yet.
   cadence: z.string().nullable().optional(),
   cadence_hint: CadenceHint.nullable().optional(),
@@ -40,8 +50,8 @@ export const AssetFrontmatter = z.object({
   // YAML serializers happily emit `null` for empty optional fields, and Zod
   // distinguishes null from undefined. Accept both for every optional field
   // so we don't silently drop assets the agent wrote with explicit nulls.
-  last_engaged: z.string().nullable().optional(),
-  killed_at: z.string().nullable().optional(),
+  last_engaged: DateString.nullable().optional(),
+  killed_at: DateString.nullable().optional(),
   killed_reason: z.string().nullable().optional(),
 });
 export type AssetFrontmatter = z.infer<typeof AssetFrontmatter>;
@@ -100,11 +110,16 @@ export function regenerateIndex(userId: string): void {
         AssetFrontmatter,
       );
       if (!data) continue;
+      // last_engaged: DateString.nullable().optional() — Zod's chained type
+      // doesn't narrow back to string after the date-coercing transform, but
+      // the runtime guarantees it. Cast at the use site rather than thread
+      // a wider type through every consumer.
       const item: AssetEntry = {
         slug: data.frontmatter.asset,
         name: data.frontmatter.name ?? data.frontmatter.asset,
         cadence: data.frontmatter.cadence ?? null,
-        lastEngaged: data.frontmatter.last_engaged ?? null,
+        lastEngaged:
+          (data.frontmatter.last_engaged as string | null | undefined) ?? null,
       };
       if (data.frontmatter.status === "active") assets.push(item);
       else if (data.frontmatter.status === "exploring") exploring.push(item);
