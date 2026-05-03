@@ -4,10 +4,10 @@ const HOUR_MS = 3600 * 1000;
 const DAY_MS = 24 * HOUR_MS;
 
 const BASE_INTERVAL_HOURS: Record<CadenceHint, [number, number]> = {
-  frequent: [18, 36], // ~daily-ish
-  regular: [48, 96], // ~every 2-4 days
-  occasional: [120, 240], // ~weekly-ish
-  dormant: [240, 480], // ~biweekly drift
+  frequent: [9, 18], // ~half-daily
+  regular: [24, 48], // ~daily-ish
+  occasional: [60, 120], // ~every 2-5 days
+  dormant: [120, 240], // ~weekly-ish
 };
 
 export type SchedulerJitterState = {
@@ -46,8 +46,8 @@ export function nextCheckTime(
   // Coarse-grain noise so users never phase-lock at the same wake time.
   hours += (rand() - 0.5) * 4;
 
-  // Floor at 8h — never wake within a working day even with all the shrinks.
-  return now + Math.max(8, hours) * HOUR_MS;
+  // Floor at 4h — give the user some breathing room even with all the shrinks.
+  return now + Math.max(4, hours) * HOUR_MS;
 }
 
 /**
@@ -58,7 +58,7 @@ export function nextCheckTime(
 export function shouldSpeakProbability(state: {
   consecutiveOutbound: number;
 }): number {
-  if (state.consecutiveOutbound >= 3) return 0.3;
-  if (state.consecutiveOutbound >= 2) return 0.6;
-  return 0.85;
+  if (state.consecutiveOutbound >= 3) return 0.5;
+  if (state.consecutiveOutbound >= 2) return 0.75;
+  return 0.95;
 }

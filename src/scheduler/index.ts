@@ -14,6 +14,10 @@ import { nextCheckTime, shouldSpeakProbability } from "./jitter.js";
 
 const TICK_INTERVAL_MS = 30_000;
 const PROVISIONAL_HOLD_SEC = 600; // 10 min — covers a slow outbound + retry
+// On a probabilistic skip, reschedule shortly so we don't burn a full
+// cadence window on a roll that didn't actually bother the user.
+const SKIP_RETRY_MIN_MS = 15 * 60_000;
+const SKIP_RETRY_MAX_MS = 60 * 60_000;
 
 const queue = new PQueue({ concurrency: 4 });
 
@@ -83,16 +87,22 @@ async function runOutboundForUser(userId: string, now: number): Promise<void> {
       // Probabilistic skip BEFORE invoking the agent (saves tokens).
       const speakP = shouldSpeakProbability({ consecutiveOutbound: consecutive });
       if (Math.random() > speakP) {
+        // Skip only consumes the tick, not the cadence window. Try again
+        // soon — the user wasn't actually messaged.
+        const retryMs =
+          now + SKIP_RETRY_MIN_MS + (SKIP_RETRY_MAX_MS - SKIP_RETRY_MIN_MS) * Math.random();
+        setNextCheck(userId, Math.floor(retryMs / 1000));
         logger.info(
-          { userId, consecutive, speakP },
+          { userId, consecutive, speakP, retryInMin: Math.round((retryMs - now) / 60_000) },
           "scheduler probabilistic skip",
         );
-      } else {
-        try {
-          await runOutboundTurn(userId);
-        } catch (err) {
-          logger.error({ err, userId }, "outbound turn failed");
-        }
+        return;
+      }
+
+      try {
+        await runOutboundTurn(userId);
+      } catch (err) {
+        logger.error({ err, userId }, "outbound turn failed");
       }
 
       // Reschedule based on fresh state (runOutboundTurn may have updated it).
