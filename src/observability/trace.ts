@@ -9,7 +9,12 @@ export type TraceEvent =
   | { type: "tool_result"; tool: string; ok: boolean; result?: unknown }
   | { type: "hook_decision"; hook: string; decision: "allow" | "deny"; reason?: string }
   | { type: "subagent_invoke"; name: string }
-  | { type: "error"; message: string; stack?: string };
+  | { type: "error"; message: string; stack?: string }
+  | {
+      type: "session_recovered";
+      stale_session_id: string;
+      reason: string;
+    };
 
 export class Trace {
   readonly path: string;

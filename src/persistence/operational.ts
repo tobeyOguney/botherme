@@ -82,6 +82,7 @@ const stmts = {
       updated_at = excluded.updated_at
   `),
   getSession: db.prepare(`SELECT session_id FROM sessions WHERE user_id = ?`),
+  clearSession: db.prepare(`DELETE FROM sessions WHERE user_id = ?`),
   logRefusal: db.prepare(`
     INSERT INTO refusal_log (user_id, ts, phrase, outcome, trace_path)
     VALUES (?, ?, ?, ?, ?)
@@ -138,6 +139,10 @@ export function saveSessionId(userId: string, sessionId: string): void {
 export function getSessionId(userId: string): string | null {
   const row = stmts.getSession.get(userId) as { session_id: string } | undefined;
   return row?.session_id ?? null;
+}
+
+export function clearSessionId(userId: string): void {
+  stmts.clearSession.run(userId);
 }
 
 export function logRefusal(
