@@ -30,9 +30,13 @@ export const AssetFrontmatter = z.object({
   asset: z.string(),
   name: z.string().optional(),
   created: z.string(),
-  cadence: z.string(),
-  cadence_hint: CadenceHint.default("regular"),
-  status: z.enum(["active", "dormant", "killed"]).default("active"),
+  // Nullable because "exploring" assets don't have a cadence committed yet.
+  cadence: z.string().nullable().optional(),
+  cadence_hint: CadenceHint.nullable().optional(),
+  // "exploring" = the agent has captured something the user mentioned but
+  // hasn't pinned down a concrete engagement shape or cadence with them yet.
+  // The next outbound nudge can ask the user to commit (or drop it).
+  status: z.enum(["exploring", "active", "dormant", "killed"]).default("active"),
   last_engaged: z.string().optional(),
   killed_at: z.string().optional(),
   killed_reason: z.string().optional(),
@@ -77,13 +81,14 @@ export function regenerateIndex(userId: string): void {
   const assetsDir = path.join(root, "assets");
   const journalDir = path.join(root, "journal");
 
-  type ActiveAsset = {
+  type AssetEntry = {
     slug: string;
     name: string;
-    cadence: string;
+    cadence: string | null;
     lastEngaged: string | null;
   };
-  const assets: ActiveAsset[] = [];
+  const assets: AssetEntry[] = [];
+  const exploring: AssetEntry[] = [];
   if (existsSync(assetsDir)) {
     for (const entry of readdirSync(assetsDir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
@@ -91,16 +96,19 @@ export function regenerateIndex(userId: string): void {
         path.join(assetsDir, entry.name),
         AssetFrontmatter,
       );
-      if (!data || data.frontmatter.status !== "active") continue;
-      assets.push({
+      if (!data) continue;
+      const item: AssetEntry = {
         slug: data.frontmatter.asset,
         name: data.frontmatter.name ?? data.frontmatter.asset,
-        cadence: data.frontmatter.cadence,
+        cadence: data.frontmatter.cadence ?? null,
         lastEngaged: data.frontmatter.last_engaged ?? null,
-      });
+      };
+      if (data.frontmatter.status === "active") assets.push(item);
+      else if (data.frontmatter.status === "exploring") exploring.push(item);
     }
   }
   assets.sort((a, b) => a.slug.localeCompare(b.slug));
+  exploring.sort((a, b) => a.slug.localeCompare(b.slug));
 
   const journals: string[] = [];
   if (existsSync(journalDir)) {
@@ -127,8 +135,18 @@ export function regenerateIndex(userId: string): void {
             const tail = a.lastEngaged
               ? ` — last engaged ${a.lastEngaged}`
               : " — never logged";
-            return `- **${a.name}** (\`${a.slug}\`) — ${a.cadence}${tail}`;
+            return `- **${a.name}** (\`${a.slug}\`) — ${a.cadence ?? "no cadence set"}${tail}`;
           })
+          .join("\n");
+
+  const exploringLines =
+    exploring.length === 0
+      ? null
+      : exploring
+          .map(
+            (a) =>
+              `- **${a.name}** (\`${a.slug}\`) — cadence not yet committed; ask the user to commit or drop`,
+          )
           .join("\n");
 
   const journalLines =
@@ -136,18 +154,19 @@ export function regenerateIndex(userId: string): void {
       ? "_(none yet)_"
       : journals.map((j) => `- ${j.replace(/\.md$/, "")}`).join("\n");
 
-  const body = [
+  const sections = [
     heading,
     "",
     intro,
     "",
     "## Active assets",
     assetLines,
-    "",
-    "## Recent journal",
-    journalLines,
-    "",
-  ].join("\n");
+  ];
+  if (exploringLines) {
+    sections.push("", "## Exploring (no cadence yet)", exploringLines);
+  }
+  sections.push("", "## Recent journal", journalLines, "");
+  const body = sections.join("\n");
 
   const out = matter.stringify(body, {
     user: userId,
