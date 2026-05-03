@@ -1,6 +1,7 @@
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { writeAssetFile, CadenceHint } from "../../persistence/memory.js";
+import { setNextCheck } from "../../persistence/operational.js";
 import { SLUG_PATTERN } from "../../util/slugify.js";
 import type { Trace } from "../../observability/trace.js";
 
@@ -68,6 +69,10 @@ export function buildRegisterAssetTool(chatId: string, trace: Trace) {
             : `slug '${args.slug}' is invalid; must be lowercase alphanumeric with hyphens.`;
         return { content: [{ type: "text", text: msg }], isError: true };
       }
+      // The user's cadence may have just changed (e.g. dormant -> occasional).
+      // Reset next_check so the next scheduler tick re-derives the bucket
+      // from the fresh asset count instead of waiting out the old schedule.
+      setNextCheck(chatId, Math.floor(Date.now() / 1000));
       trace.write({
         type: "tool_result",
         tool: "register_asset",

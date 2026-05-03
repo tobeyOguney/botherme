@@ -114,9 +114,12 @@ export function ensureUser(
   const nowIso = new Date().toISOString();
   const nowSec = Math.floor(Date.now() / 1000);
   stmts.upsertUser.run(userId, nowIso, displayName);
-  // First-time users get a far-future next_check so the scheduler doesn't
-  // fire before they've registered an asset.
-  stmts.initSchedulerState.run(userId, nowSec + 7 * 24 * 3600);
+  // Schedule the first tick immediately. The scheduler itself will see
+  // hint=dormant for a user with no assets yet and defer 10-20 days via the
+  // existing cadence machinery; once they register an asset, the
+  // register_asset tool kicks next_check back to now so the new cadence
+  // takes effect on the next tick.
+  stmts.initSchedulerState.run(userId, nowSec);
 }
 
 export function recordInbound(userId: string): void {
