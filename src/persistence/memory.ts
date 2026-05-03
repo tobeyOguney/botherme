@@ -28,7 +28,7 @@ export type CadenceHint = z.infer<typeof CadenceHint>;
 
 export const AssetFrontmatter = z.object({
   asset: z.string(),
-  name: z.string().optional(),
+  name: z.string().nullable().optional(),
   created: z.string(),
   // Nullable because "exploring" assets don't have a cadence committed yet.
   cadence: z.string().nullable().optional(),
@@ -37,9 +37,12 @@ export const AssetFrontmatter = z.object({
   // hasn't pinned down a concrete engagement shape or cadence with them yet.
   // The next outbound nudge can ask the user to commit (or drop it).
   status: z.enum(["exploring", "active", "dormant", "killed"]).default("active"),
-  last_engaged: z.string().optional(),
-  killed_at: z.string().optional(),
-  killed_reason: z.string().optional(),
+  // YAML serializers happily emit `null` for empty optional fields, and Zod
+  // distinguishes null from undefined. Accept both for every optional field
+  // so we don't silently drop assets the agent wrote with explicit nulls.
+  last_engaged: z.string().nullable().optional(),
+  killed_at: z.string().nullable().optional(),
+  killed_reason: z.string().nullable().optional(),
 });
 export type AssetFrontmatter = z.infer<typeof AssetFrontmatter>;
 
