@@ -46,6 +46,7 @@ write_files:
         -v /mnt/data/data:/data \
         -v /mnt/data/users:/users \
         -v /mnt/data/traces:/traces \
+        -v /mnt/data/claude:/home/node/.claude \
         ${docker_image}
       ExecStop=/usr/bin/docker stop -t 30 ${project_name}
 
@@ -82,9 +83,11 @@ write_files:
       fi
       mount -a
       mountpoint -q "$MNT" || { echo "$MNT did not mount" >&2; exit 1; }
-      mkdir -p "$MNT/data" "$MNT/users" "$MNT/traces"
+      mkdir -p "$MNT/data" "$MNT/users" "$MNT/traces" "$MNT/claude"
       # `node` user inside the container image is uid 1000.
-      chown -R 1000:1000 "$MNT/data" "$MNT/users" "$MNT/traces"
+      # /claude holds the Claude Agent SDK's session JSONLs and shell-snapshot
+      # state; without persistence, every container restart breaks `--resume`.
+      chown -R 1000:1000 "$MNT/data" "$MNT/users" "$MNT/traces" "$MNT/claude"
 
 runcmd:
   - [ bash, -c, "curl -fsSL https://get.docker.com | sh" ]
