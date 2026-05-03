@@ -151,6 +151,55 @@ describe("killAssetFile", () => {
   });
 });
 
+describe("validateAssetMarkdown", () => {
+  it("returns null for well-formed active frontmatter", () => {
+    const raw = matter.stringify("body", {
+      asset: "x",
+      created: "2026-05-03",
+      cadence: "weekly",
+      cadence_hint: "occasional",
+      status: "active",
+    });
+    expect(memory.validateAssetMarkdown(raw)).toBeNull();
+  });
+
+  it("returns null for an exploring asset with explicit nulls", () => {
+    const raw = matter.stringify("body", {
+      asset: "x",
+      created: "2026-05-03",
+      cadence: null,
+      cadence_hint: null,
+      status: "exploring",
+      last_engaged: null,
+    });
+    expect(memory.validateAssetMarkdown(raw)).toBeNull();
+  });
+
+  it("flags a bogus status", () => {
+    const raw = matter.stringify("body", {
+      asset: "x",
+      created: "2026-05-03",
+      cadence: "weekly",
+      cadence_hint: "occasional",
+      status: "snoozing",
+    });
+    const issues = memory.validateAssetMarkdown(raw);
+    expect(issues).not.toBeNull();
+    expect(issues!.some((s) => s.startsWith("status:"))).toBe(true);
+  });
+
+  it("flags missing required field", () => {
+    const raw = matter.stringify("body", {
+      asset: "x",
+      // created missing
+      cadence: "weekly",
+    });
+    const issues = memory.validateAssetMarkdown(raw);
+    expect(issues).not.toBeNull();
+    expect(issues!.some((s) => s.startsWith("created:"))).toBe(true);
+  });
+});
+
 describe("regenerateIndex", () => {
   it("reflects active assets in frontmatter and body", () => {
     memory.ensureUserTree(USER_ID);
