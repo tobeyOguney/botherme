@@ -19,7 +19,7 @@ function seeded(seed: number): () => number {
 const NOW = 1_700_000_000_000;
 
 describe("nextCheckTime: bounds", () => {
-  it("frequent: hours fall within [8, ~40] on plain cold state", () => {
+  it("frequent: hours fall within [4, ~22] on plain cold state", () => {
     for (let seed = 1; seed < 100; seed++) {
       const r = nextCheckTime(
         "frequent",
@@ -28,12 +28,12 @@ describe("nextCheckTime: bounds", () => {
         seeded(seed),
       );
       const hours = (r - NOW) / HOUR_MS;
-      expect(hours).toBeGreaterThanOrEqual(8);
-      expect(hours).toBeLessThanOrEqual(40); // 36 + 2 noise + small slack
+      expect(hours).toBeGreaterThanOrEqual(4);
+      expect(hours).toBeLessThanOrEqual(22); // 18 + 2 noise + small slack
     }
   });
 
-  it("regular: hours roughly within [8, ~100]", () => {
+  it("regular: hours roughly within [4, ~52]", () => {
     for (let seed = 1; seed < 100; seed++) {
       const r = nextCheckTime(
         "regular",
@@ -42,8 +42,8 @@ describe("nextCheckTime: bounds", () => {
         seeded(seed),
       );
       const hours = (r - NOW) / HOUR_MS;
-      expect(hours).toBeGreaterThanOrEqual(8);
-      expect(hours).toBeLessThanOrEqual(100);
+      expect(hours).toBeGreaterThanOrEqual(4);
+      expect(hours).toBeLessThanOrEqual(52); // 48 + 2 noise + small slack
     }
   });
 
@@ -149,7 +149,7 @@ describe("nextCheckTime: warmth bias for recent inbound", () => {
 });
 
 describe("nextCheckTime: floor", () => {
-  it("never returns less than 8 hours ahead, even with all shrinks", () => {
+  it("never returns less than 4 hours ahead, even with all shrinks", () => {
     for (let seed = 1; seed < 200; seed++) {
       const r = nextCheckTime(
         "frequent",
@@ -158,7 +158,7 @@ describe("nextCheckTime: floor", () => {
         seeded(seed),
       );
       const hours = (r - NOW) / HOUR_MS;
-      expect(hours).toBeGreaterThanOrEqual(8);
+      expect(hours).toBeGreaterThanOrEqual(4);
     }
   });
 });
@@ -198,24 +198,24 @@ describe("nextCheckTime: no phase-locking", () => {
 });
 
 describe("shouldSpeakProbability", () => {
-  it("returns 0.85 by default", () => {
-    expect(shouldSpeakProbability({ consecutiveOutbound: 0 })).toBe(0.85);
+  it("returns 0.95 by default", () => {
+    expect(shouldSpeakProbability({ consecutiveOutbound: 0 })).toBe(0.95);
   });
 
-  it("returns 0.85 at 1 consecutive", () => {
-    expect(shouldSpeakProbability({ consecutiveOutbound: 1 })).toBe(0.85);
+  it("returns 0.95 at 1 consecutive", () => {
+    expect(shouldSpeakProbability({ consecutiveOutbound: 1 })).toBe(0.95);
   });
 
-  it("drops to 0.6 at 2 consecutive", () => {
-    expect(shouldSpeakProbability({ consecutiveOutbound: 2 })).toBe(0.6);
+  it("drops to 0.75 at 2 consecutive", () => {
+    expect(shouldSpeakProbability({ consecutiveOutbound: 2 })).toBe(0.75);
   });
 
-  it("drops to 0.3 at 3 consecutive", () => {
-    expect(shouldSpeakProbability({ consecutiveOutbound: 3 })).toBe(0.3);
+  it("drops to 0.5 at 3 consecutive", () => {
+    expect(shouldSpeakProbability({ consecutiveOutbound: 3 })).toBe(0.5);
   });
 
-  it("stays at 0.3 beyond 3 consecutive", () => {
-    expect(shouldSpeakProbability({ consecutiveOutbound: 7 })).toBe(0.3);
+  it("stays at 0.5 beyond 3 consecutive", () => {
+    expect(shouldSpeakProbability({ consecutiveOutbound: 7 })).toBe(0.5);
   });
 
   it("is monotonically non-increasing in consecutiveOutbound", () => {
