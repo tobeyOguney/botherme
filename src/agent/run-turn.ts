@@ -11,6 +11,7 @@ import {
 } from "../persistence/operational.js";
 import { loadSystemPrompt } from "./system-prompt.js";
 import { noUnverifiedSpecificsHook } from "./hooks/no-unverified-specifics.js";
+import { validateAssetWriteHook } from "./hooks/validate-asset-write.js";
 import { runRecallWriter } from "./recall.js";
 import {
   buildAgentMcpServer,
@@ -79,7 +80,14 @@ async function runTurn(
         allowedTools: [...ALLOWED_FS_TOOLS, ...ALLOWED_CUSTOM_TOOLS],
         mcpServers: { [MCP_SERVER_NAME]: mcpServer },
         hooks: {
-          PreToolUse: [{ hooks: [noUnverifiedSpecificsHook(hookCtx)] }],
+          PreToolUse: [
+            {
+              hooks: [
+                noUnverifiedSpecificsHook(hookCtx),
+                validateAssetWriteHook({ trace }),
+              ],
+            },
+          ],
         },
         // SDK isolation: don't load ~/.claude or .claude/ settings.
         settingSources: [],

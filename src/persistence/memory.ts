@@ -226,7 +226,31 @@ export type RegisterAssetInput = {
 
 export type RegisterAssetResult =
   | { ok: true; path: string }
-  | { ok: false; reason: "invalid_slug" | "already_exists" };
+  | {
+      ok: false;
+      reason: "invalid_slug" | "already_exists" | "invalid_frontmatter";
+      detail?: string;
+    };
+
+/**
+ * Parses YAML frontmatter from raw markdown contents and runs it through
+ * AssetFrontmatter. Returns a list of human-readable issues, or null if
+ * the frontmatter validates. Used by both writeAssetFile and the
+ * PreToolUse hook so direct Write/Edit calls share the same gate.
+ */
+export function validateAssetMarkdown(raw: string): string[] | null {
+  let parsed: matter.GrayMatterFile<string>;
+  try {
+    parsed = matter(raw);
+  } catch (err) {
+    return [`unparseable YAML frontmatter: ${(err as Error).message}`];
+  }
+  const fm = AssetFrontmatter.safeParse(parsed.data);
+  if (fm.success) return null;
+  return fm.error.issues.map(
+    (i) => `${i.path.join(".") || "(root)"}: ${i.message}`,
+  );
+}
 
 export function activeAssetPath(userId: string, slug: string): string {
   return path.join(userDir(userId), "assets", `${slug}.md`);
@@ -272,6 +296,17 @@ export function writeAssetFile(
       status: "active",
     },
   );
+  // Belt-and-braces: ensure what we're about to put on disk parses cleanly
+  // through the same schema regenerateIndex uses to read it back. Fails
+  // loudly here instead of silently dropping the file at read time.
+  const issues = validateAssetMarkdown(body);
+  if (issues) {
+    return {
+      ok: false,
+      reason: "invalid_frontmatter",
+      detail: issues.join("; "),
+    };
+  }
   atomicWrite(target, body);
   return { ok: true, path: target };
 }
