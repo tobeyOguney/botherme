@@ -57,31 +57,105 @@ export function ensureUserTree(userId: string): string {
   mkdirSync(path.join(root, "meta"), { recursive: true });
   mkdirSync(path.join(root, ".session"), { recursive: true });
 
-  // Seed an initial index.md if missing — first turn always reads it.
+  // Seed an initial index.md if missing — regenerateIndex maintains it from
+  // there on every turn.
   const idx = path.join(root, "index.md");
   if (!existsSync(idx)) {
-    const seed = matter.stringify(
-      [
-        "# new user",
-        "",
-        "No assets registered yet. Onboarding: ask what they're trying to engage with",
-        "and what doing it would look like, concretely.",
-        "",
-        "## Active assets",
-        "_(none yet)_",
-        "",
-        "## Recent journal",
-        "_(none yet)_",
-      ].join("\n"),
-      {
-        user: userId,
-        last_updated: new Date().toISOString().slice(0, 10),
-        active_assets: 0,
-      },
-    );
-    atomicWrite(idx, seed);
+    regenerateIndex(userId);
   }
   return root;
+}
+
+/**
+ * Rewrites index.md from the current filesystem state. Called at the top of
+ * every turn so the agent always reads a fresh cache. Cheap (a directory scan
+ * + one write) and removes a class of "the agent saw a stale index and stayed
+ * silent" failures.
+ */
+export function regenerateIndex(userId: string): void {
+  const root = userDir(userId);
+  const assetsDir = path.join(root, "assets");
+  const journalDir = path.join(root, "journal");
+
+  type ActiveAsset = {
+    slug: string;
+    name: string;
+    cadence: string;
+    lastEngaged: string | null;
+  };
+  const assets: ActiveAsset[] = [];
+  if (existsSync(assetsDir)) {
+    for (const entry of readdirSync(assetsDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      const data = readMarkdown(
+        path.join(assetsDir, entry.name),
+        AssetFrontmatter,
+      );
+      if (!data || data.frontmatter.status !== "active") continue;
+      assets.push({
+        slug: data.frontmatter.asset,
+        name: data.frontmatter.name ?? data.frontmatter.asset,
+        cadence: data.frontmatter.cadence,
+        lastEngaged: data.frontmatter.last_engaged ?? null,
+      });
+    }
+  }
+  assets.sort((a, b) => a.slug.localeCompare(b.slug));
+
+  const journals: string[] = [];
+  if (existsSync(journalDir)) {
+    journals.push(
+      ...readdirSync(journalDir)
+        .filter((f) => f.endsWith(".md"))
+        .sort()
+        .reverse()
+        .slice(0, 7),
+    );
+  }
+
+  const heading = assets.length === 0 ? "# new user" : "# user index";
+  const intro =
+    assets.length === 0
+      ? "No assets registered yet. Onboarding: ask what they're trying to engage with and what doing it would look like, concretely."
+      : "Current state. If anything looks off, trust the filesystem (`Glob assets/*.md`, `ls journal/`).";
+
+  const assetLines =
+    assets.length === 0
+      ? "_(none yet)_"
+      : assets
+          .map((a) => {
+            const tail = a.lastEngaged
+              ? ` — last engaged ${a.lastEngaged}`
+              : " — never logged";
+            return `- **${a.name}** (\`${a.slug}\`) — ${a.cadence}${tail}`;
+          })
+          .join("\n");
+
+  const journalLines =
+    journals.length === 0
+      ? "_(none yet)_"
+      : journals.map((j) => `- ${j.replace(/\.md$/, "")}`).join("\n");
+
+  const body = [
+    heading,
+    "",
+    intro,
+    "",
+    "## Active assets",
+    assetLines,
+    "",
+    "## Recent journal",
+    journalLines,
+    "",
+  ].join("\n");
+
+  const out = matter.stringify(body, {
+    user: userId,
+    last_updated: new Date().toISOString().slice(0, 10),
+    active_assets: assets.length,
+  });
+
+  atomicWrite(path.join(root, "index.md"), out);
 }
 
 export function atomicWrite(filePath: string, contents: string): void {

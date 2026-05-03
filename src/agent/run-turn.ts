@@ -3,7 +3,7 @@ import path from "node:path";
 import { env } from "../config/env.js";
 import { logger } from "../observability/logger.js";
 import { Trace } from "../observability/trace.js";
-import { ensureUserTree } from "../persistence/memory.js";
+import { ensureUserTree, regenerateIndex } from "../persistence/memory.js";
 import { getSessionId, saveSessionId } from "../persistence/operational.js";
 import { loadSystemPrompt } from "./system-prompt.js";
 import { noUnverifiedSpecificsHook } from "./hooks/no-unverified-specifics.js";
@@ -36,6 +36,9 @@ async function runTurn(
 ): Promise<string> {
   const cwd = path.resolve(env.BOTHERME_USERS_DIR, userId);
   ensureUserTree(userId);
+  // Refresh index.md from the filesystem so the agent reads accurate state
+  // (active asset count, last-engaged dates, recent journal entries).
+  regenerateIndex(userId);
 
   const trace = new Trace(userId);
   trace.write({
@@ -148,7 +151,11 @@ export async function runOutboundTurn(
   userId: string,
   opts: RunTurnOptions = {},
 ): Promise<string> {
-  const prompt =
-    "Outbound check-in. Read index.md first. Decide if there's anything specific worth saying right now — choosing to stay quiet is fine and often correct. If you decide to speak, deliver via send_telegram_message; if not, just say <silent/> and stop.";
+  const prompt = [
+    "Outbound check-in. Read index.md to see active assets and the last-engaged date for each.",
+    "For each active asset, ask yourself: when was it last logged or discussed? If it's been longer than the asset's cadence suggests, this is exactly the moment to nudge — that's the whole job.",
+    "Pick the most-overdue asset and send ONE specific question about it via send_telegram_message. Specific = grounded in the asset's recorded facts, cadence, or last engagement (e.g. 'still on chapter 3?' not 'how's the reading going?'). Read the asset file before composing if you need the detail.",
+    "Stay silent (<silent/>) only when there's genuinely nothing to ask — e.g. the user messaged within the last hour, OR every asset was logged today, OR there are no active assets at all. Treat <silent/> as the rare path, not the default.",
+  ].join("\n\n");
   return runTurn(userId, prompt, "outbound", opts);
 }
