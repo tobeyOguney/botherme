@@ -4,7 +4,11 @@ import { env } from "../config/env.js";
 import { logger } from "../observability/logger.js";
 import { Trace } from "../observability/trace.js";
 import { ensureUserTree, regenerateIndex } from "../persistence/memory.js";
-import { getSessionId, saveSessionId } from "../persistence/operational.js";
+import {
+  clearSessionId,
+  getSessionId,
+  saveSessionId,
+} from "../persistence/operational.js";
 import { loadSystemPrompt } from "./system-prompt.js";
 import { noUnverifiedSpecificsHook } from "./hooks/no-unverified-specifics.js";
 import { runRecallWriter } from "./recall.js";
@@ -61,7 +65,9 @@ async function runTurn(
   let finalText = "";
   let sessionId: string | undefined;
 
-  try {
+  const runOnce = async (resume: string | null): Promise<void> => {
+    finalText = "";
+    sessionId = undefined;
     const q = query({
       prompt: promptText,
       options: {
@@ -79,7 +85,7 @@ async function runTurn(
         settingSources: [],
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
-        ...(resumeSession ? { resume: resumeSession } : {}),
+        ...(resume ? { resume } : {}),
         maxTurns: 12,
         stderr: (data) => logger.debug({ stderr: data }, "sdk stderr"),
       },
@@ -105,6 +111,32 @@ async function runTurn(
             "turn ended with non-success result",
           );
         }
+      }
+    }
+  };
+
+  try {
+    try {
+      await runOnce(resumeSession);
+    } catch (err) {
+      // If we passed a resume and the SDK errored, the saved session is most
+      // likely pointing at a JSONL that no longer exists (we've debugged this
+      // exact case twice). Clear it and try once more from a fresh session.
+      // Any non-resume failure (or a failure on the retry itself) propagates.
+      if (resumeSession) {
+        logger.warn(
+          { userId, kind, sessionId: resumeSession, err },
+          "turn failed with resume; clearing session and retrying without it",
+        );
+        trace.write({
+          type: "session_recovered",
+          stale_session_id: resumeSession,
+          reason: "sdk_error_with_resume",
+        });
+        clearSessionId(userId);
+        await runOnce(null);
+      } else {
+        throw err;
       }
     }
 
