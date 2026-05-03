@@ -188,6 +188,22 @@ describe("validateAssetMarkdown", () => {
     expect(issues!.some((s) => s.startsWith("status:"))).toBe(true);
   });
 
+  it("accepts bare YAML dates (auto-parsed to Date objects) and normalises to ISO string", () => {
+    // gray-matter / js-yaml turns unquoted `2026-05-02` into a Date.
+    // We construct the file via raw YAML so the test exercises the full path.
+    const raw = [
+      "---",
+      "asset: rtmp-server",
+      "created: 2026-05-02",
+      "last_engaged: 2026-05-02",
+      "cadence: weekly",
+      "status: active",
+      "---",
+      "body",
+    ].join("\n");
+    expect(memory.validateAssetMarkdown(raw)).toBeNull();
+  });
+
   it("flags missing required field", () => {
     const raw = matter.stringify("body", {
       asset: "x",
