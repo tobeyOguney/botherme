@@ -150,3 +150,81 @@ describe("killAssetFile", () => {
     expect(result.reason).toBe("invalid_slug");
   });
 });
+
+describe("regenerateIndex", () => {
+  it("reflects active assets in frontmatter and body", () => {
+    memory.ensureUserTree(USER_ID);
+    memory.writeAssetFile(USER_ID, {
+      name: "Driving theory",
+      slug: "driving-theory",
+      whatEngagementLooksLike: "30 min on the app",
+      cadence: "daily-ish",
+      cadenceHint: "frequent",
+    });
+    memory.writeAssetFile(USER_ID, {
+      name: "Swedish",
+      slug: "swedish",
+      whatEngagementLooksLike: "10 min in Duolingo",
+      cadence: "daily",
+      cadenceHint: "frequent",
+    });
+
+    memory.regenerateIndex(USER_ID);
+
+    const idxPath = path.join(
+      process.env.BOTHERME_USERS_DIR!,
+      USER_ID,
+      "index.md",
+    );
+    const parsed = matter(readFileSync(idxPath, "utf8"));
+    expect(parsed.data.active_assets).toBe(2);
+    expect(parsed.content).toContain("Driving theory");
+    expect(parsed.content).toContain("Swedish");
+    expect(parsed.content).toContain("daily");
+  });
+
+  it("excludes killed assets from the count and listing", () => {
+    memory.ensureUserTree(USER_ID);
+    memory.writeAssetFile(USER_ID, {
+      name: "Keep",
+      slug: "keep",
+      whatEngagementLooksLike: "do the thing",
+      cadence: "weekly",
+      cadenceHint: "occasional",
+    });
+    memory.writeAssetFile(USER_ID, {
+      name: "Drop",
+      slug: "drop",
+      whatEngagementLooksLike: "do the other thing",
+      cadence: "weekly",
+      cadenceHint: "occasional",
+    });
+    memory.killAssetFile(USER_ID, "drop", "lost interest");
+    memory.regenerateIndex(USER_ID);
+
+    const idxPath = path.join(
+      process.env.BOTHERME_USERS_DIR!,
+      USER_ID,
+      "index.md",
+    );
+    const parsed = matter(readFileSync(idxPath, "utf8"));
+    expect(parsed.data.active_assets).toBe(1);
+    expect(parsed.content).toContain("Keep");
+    expect(parsed.content).not.toContain("- **Drop**");
+  });
+
+  it("renders the empty state when no assets exist", () => {
+    memory.ensureUserTree(USER_ID);
+    memory.regenerateIndex(USER_ID);
+
+    const idxPath = path.join(
+      process.env.BOTHERME_USERS_DIR!,
+      USER_ID,
+      "index.md",
+    );
+    const parsed = matter(readFileSync(idxPath, "utf8"));
+    expect(parsed.data.active_assets).toBe(0);
+    expect(parsed.content).toContain("new user");
+    expect(parsed.content).toContain("(none yet");
+  });
+});
