@@ -223,6 +223,8 @@ describe("regenerateIndex", () => {
       cadenceHint: "occasional",
     });
     // Hand-roll an "exploring" asset since register_asset only writes active.
+    // Include explicit nulls on every optional field — that's the shape the
+    // agent actually produces via the Write tool (YAML serializer emits null).
     const fm = matter.stringify("# Swedish\n\nuser mentioned wanting to learn", {
       asset: "swedish",
       name: "Swedish",
@@ -230,6 +232,7 @@ describe("regenerateIndex", () => {
       cadence: null,
       cadence_hint: null,
       status: "exploring",
+      last_engaged: null,
     });
     const exploringPath = path.join(
       process.env.BOTHERME_USERS_DIR!,
